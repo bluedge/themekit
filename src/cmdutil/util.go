@@ -17,6 +17,7 @@ import (
 
 	"github.com/Shopify/themekit/src/colors"
 	"github.com/Shopify/themekit/src/env"
+	"github.com/Shopify/themekit/src/file"
 	"github.com/Shopify/themekit/src/shopify"
 )
 
@@ -70,6 +71,7 @@ type Ctx struct {
 	progress *mpb.Progress
 	Bar      *mpb.Bar
 	mu       sync.RWMutex
+	summary  cmdSummary
 }
 
 type clientFact func(*env.Env) (shopifyClient, error)
@@ -143,6 +145,7 @@ func createCtx(newClient clientFact, conf env.Conf, e *env.Env, flags Flags, arg
 		Log:      colors.ColorStdOut,
 		ErrLog:   colors.ColorStdErr,
 		errBuff:  []string{},
+		summary:  cmdSummary{},
 	}, nil
 }
 
@@ -180,10 +183,11 @@ func (ctx *Ctx) Err(msg string, inter ...interface{}) {
 
 // DoneTask will mark one unit of work complete. If the context has a progress bar
 // then it will increment it.
-func (ctx *Ctx) DoneTask() {
+func (ctx *Ctx) DoneTask(op file.Op, err error) {
 	if !ctx.Flags.Verbose && ctx.Bar != nil {
 		ctx.Bar.Increment()
 	}
+	ctx.summary.completeOp(op, err)
 }
 
 func generateContexts(newClient clientFact, progress *mpb.Progress, flags Flags, args []string) ([]*Ctx, error) {
@@ -299,6 +303,7 @@ func forEachClient(newClient clientFact, flags Flags, args []string, handler fun
 			ctx.ErrLog.Println("finished command with errors")
 			break
 		}
+		ctx.summary.display(ctx)
 	}
 	return err
 }

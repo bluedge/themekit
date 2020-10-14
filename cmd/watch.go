@@ -94,33 +94,43 @@ func watch(ctx *cmdutil.Ctx, events chan file.Event, sig chan os.Signal, notifie
 }
 
 func perform(ctx *cmdutil.Ctx, path string, op file.Op, checksum string) {
-	defer ctx.DoneTask()
+	var err error
+	defer ctx.DoneTask(op, err)
 
 	switch op {
 	case file.Skip:
-		localAsset, _ := shopify.ReadAsset(ctx.Env, path)
-
 		if ctx.Flags.Verbose {
+			localAsset, _ := shopify.ReadAsset(ctx.Env, path)
 			checksumOutput := "Checksum: " + localAsset.Checksum
 			ctx.Log.Printf("[%s] %s %s (%s)", colors.Green(ctx.Env.Name), colors.BrightBlack("Skipped"), colors.Blue(path), checksumOutput)
 		}
 	case file.Remove:
-		if err := ctx.Client.DeleteAsset(shopify.Asset{Key: path}); err != nil {
+		if err = ctx.Client.DeleteAsset(shopify.Asset{Key: path}); err != nil {
 			ctx.Err("[%s] (%s) %s", colors.Green(ctx.Env.Name), colors.Blue(path), err)
 		} else if ctx.Flags.Verbose {
 			ctx.Log.Printf("[%s] Deleted %s", colors.Green(ctx.Env.Name), colors.Blue(path))
+		}
+	case file.Get:
+		var asset shopify.Asset
+		if asset, err = ctx.Client.GetAsset(path); err != nil {
+			ctx.Err("[%s] error downloading %s: %s", colors.Green(ctx.Env.Name), colors.Blue(path), err)
+		} else if err = asset.Write(ctx.Env.Directory); err != nil {
+			ctx.Err("[%s] error writing %s: %s", colors.Green(ctx.Env.Name), colors.Blue(asset.Key), err)
+		} else if ctx.Flags.Verbose {
+			ctx.Log.Printf("[%s] Successfully wrote %s to disk", colors.Green(ctx.Env.Name), colors.Blue(asset.Key))
 		}
 	default:
 		assetLimitSemaphore <- struct{}{}
 		defer func() { <-assetLimitSemaphore }()
 
-		asset, err := shopify.ReadAsset(ctx.Env, path)
+		var asset shopify.Asset
+		asset, err = shopify.ReadAsset(ctx.Env, path)
 		if err != nil {
 			ctx.Err("[%s] error loading %s: %s", colors.Green(ctx.Env.Name), colors.Green(path), colors.Red(err))
 			return
 		}
 
-		if err := ctx.Client.UpdateAsset(asset, checksum); err != nil {
+		if err = ctx.Client.UpdateAsset(asset, checksum); err != nil {
 			ctx.Err("[%s] (%s) %s", colors.Green(ctx.Env.Name), colors.Blue(asset.Key), err)
 		} else if ctx.Flags.Verbose {
 			ctx.Log.Printf("[%s] Updated %s", colors.Green(ctx.Env.Name), colors.Blue(asset.Key))
